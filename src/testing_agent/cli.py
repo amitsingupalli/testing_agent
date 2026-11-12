@@ -6,6 +6,8 @@ from pathlib import Path
 
 import typer
 
+from testing_agent.config import ProjectConfig, load_config, save_config
+
 app = typer.Typer(
     help="Self-testing layer for coding agents: detect the stack, run suites, gate changes.",
     no_args_is_help=True,
@@ -17,7 +19,20 @@ def init(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Project directory to analyze."),
 ) -> None:
     """Analyze a project and write a .testing-agent.json config."""
-    typer.echo(f"init: analyzing {path} (wired up in an upcoming commit)")
+    root = path.resolve()
+    if not root.is_dir():
+        typer.secho(f"error: {root} is not a directory", fg="red", err=True)
+        raise typer.Exit(code=2)
+
+    existing = load_config(root)
+    config = existing or ProjectConfig(root=str(root))
+    if existing is None:
+        config.root = str(root)
+    file_path = save_config(root, config)
+
+    typer.secho(f"Configuration written to {file_path}", fg="green")
+    if existing is not None:
+        typer.echo("Existing config loaded and re-saved (edit the file to customize).")
 
 
 @app.command()
