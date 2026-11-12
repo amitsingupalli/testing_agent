@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from testing_agent.detect.golang import detect_go, detect_rust
 from testing_agent.detect.models import DetectionResult, ProjectManifest
 from testing_agent.detect.node import detect_node
 from testing_agent.detect.python import detect_python
@@ -43,6 +44,14 @@ def _detect_directory(directory: Path, relative: str) -> ProjectManifest | None:
         manifest.directory = relative
         return manifest
     manifest = detect_python(directory)
+    if manifest is not None:
+        manifest.directory = relative
+        return manifest
+    manifest = detect_go(directory)
+    if manifest is not None:
+        manifest.directory = relative
+        return manifest
+    manifest = detect_rust(directory)
     if manifest is not None:
         manifest.directory = relative
         return manifest
