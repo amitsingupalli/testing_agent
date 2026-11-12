@@ -1,0 +1,9 @@
+{
+  "name": "testing-agent-node-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sample project used to dogfood testing-agent (zero dependencies, Node built-in test runner)",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

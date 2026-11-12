@@ -15,6 +15,7 @@ build/
 
 # testing-agent runtime artifacts
 .testing-agent/
+.testing-agent.json
 
 # Node
 node_modules/

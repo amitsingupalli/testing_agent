@@ -19,11 +19,16 @@ class GateSummary(BaseModel):
 
 def build_report(target: str, results: list[RunResult], gate: GateSummary) -> dict[str, Any]:
     """Assemble the canonical report dict shared by all renderers."""
+    result_dicts: list[dict[str, Any]] = []
+    for result in results:
+        dumped = result.model_dump(mode="json")
+        dumped["verdict"] = result.verdict  # property, not a field — inject manually
+        result_dicts.append(dumped)
     return {
         "schema_version": 1,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "target": target,
         "verdict": "PASS" if gate.passed else "FAIL",
-        "results": [result.model_dump(mode="json") for result in results],
+        "results": result_dicts,
         "gate": gate.model_dump(),
     }

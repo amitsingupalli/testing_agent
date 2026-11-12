@@ -18,6 +18,20 @@ from testing_agent.runners.junit import parse_junit
 
 _UNIT_DIRS = ["tests/unit", "tests", "test"]
 _INTEGRATION_DIRS = ["tests/integration", "test/integration"]
+_TEST_FILE_PATTERNS = ("*.test.js", "*.test.mjs", "*.test.cjs", "test.js", "test.mjs", "test.cjs")
+
+
+def _collect_test_files(suite_dir: Path) -> list[Path]:
+    """Expand a suite directory into concrete test files.
+
+    Node's --test accepts file paths but (on some versions/platforms,
+    including Node 24 on Windows) rejects directories, so we expand here.
+    """
+    files: set[Path] = set()
+    for pattern in _TEST_FILE_PATTERNS:
+        files.update(suite_dir.glob(pattern))
+        files.update(suite_dir.glob(f"**/{pattern}"))
+    return sorted(files)
 
 
 class NodeTestRunner(Runner):
@@ -41,14 +55,25 @@ class NodeTestRunner(Runner):
         timeout_seconds: int = 300,
     ) -> RunResult:
         manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
-        suite_dir = self._suite_dir(manifest_dir, test_type)
-        if suite_dir is None:
+        suite_dir_name = self._suite_dir(manifest_dir, test_type)
+        if suite_dir_name is None:
             return RunResult(
                 runner=self.id,
                 test_type=test_type,
                 manifest_directory=manifest.directory,
                 no_tests=True,
                 note=f"no test directory found in '{manifest.directory or '.'}'",
+            )
+
+        suite_dir = manifest_dir / suite_dir_name
+        test_files = _collect_test_files(suite_dir)
+        if not test_files:
+            return RunResult(
+                runner=self.id,
+                test_type=test_type,
+                manifest_directory=manifest.directory,
+                no_tests=True,
+                note=f"no *.test.* files found under '{suite_dir_name}'",
             )
 
         junit_file = artifact_dir(manifest_dir) / f"node-{test_type.value}.xml"
@@ -60,7 +85,7 @@ class NodeTestRunner(Runner):
             "junit",
             "--test-reporter-destination",
             str(junit_file),
-            suite_dir,
+            *[str(path.relative_to(manifest_dir)) for path in test_files],
         ]
         log_file = log_path(manifest_dir, self.id, test_type)
         exit_code, duration_ms, missing = run_command(
