@@ -1,0 +1,93 @@
+"""pytest adapter (Python projects)."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from testing_agent.detect.models import ProjectManifest
+from testing_agent.runners.base import (
+    RunResult,
+    Runner,
+    TestType,
+    artifact_dir,
+    first_existing_directory,
+    log_path,
+    run_command,
+)
+from testing_agent.runners.junit import parse_junit
+
+_UNIT_DIRS = ["tests/unit", "tests", "test"]
+_INTEGRATION_DIRS = ["tests/integration", "test/integration"]
+
+
+class PytestRunner(Runner):
+    """Runs pytest suites via `python -m pytest` with JUnit XML output."""
+
+    id = "pytest"
+
+    def applies(self, manifest: ProjectManifest) -> bool:
+        return manifest.stack.value == "python" and manifest.test_runner == "pytest"
+
+    def _suite_dir(self, manifest_dir: Path, test_type: TestType) -> str | None:
+        if test_type == TestType.INTEGRATION:
+            return first_existing_directory(manifest_dir, _INTEGRATION_DIRS)
+        return first_existing_directory(manifest_dir, _UNIT_DIRS)
+
+    def run(
+        self,
+        manifest: ProjectManifest,
+        root: Path,
+        test_type: TestType,
+        timeout_seconds: int = 300,
+    ) -> RunResult:
+        manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
+        suite_dir = self._suite_dir(manifest_dir, test_type)
+        if suite_dir is None:
+            return RunResult(
+                runner=self.id,
+                test_type=test_type,
+                manifest_directory=manifest.directory,
+                no_tests=True,
+                note=f"no test directory found in '{manifest.directory or '.'}'",
+            )
+
+        junit_file = artifact_dir(manifest_dir) / f"pytest-{test_type.value}.xml"
+        junit_file.parent.mkdir(parents=True, exist_ok=True)
+        command = [
+            sys.executable,
+            "-m",
+            "pytest",
+            suite_dir,
+            "--junit-xml",
+            str(junit_file),
+            "-q",
+            "--no-header",
+        ]
+        log_file = log_path(manifest_dir, self.id, test_type)
+        exit_code, duration_ms, missing = run_command(
+            command, manifest_dir, timeout_seconds, log_file
+        )
+
+        summary = parse_junit(junit_file) if junit_file.is_file() else None
+        passed = summary.passed if summary else 0
+        failed = summary.failed if summary else 0
+        errors = summary.errors if summary else 0
+        skipped = summary.skipped if summary else 0
+        failures = summary.failures if summary else []
+
+        return RunResult(
+            runner=self.id,
+            test_type=test_type,
+            manifest_directory=manifest.directory,
+            passed=passed,
+            failed=failed,
+            errors=errors,
+            skipped=skipped,
+            duration_ms=duration_ms,
+            exit_code=exit_code,
+            command=" ".join(command),
+            success=(missing is False and exit_code == 0),
+            missing_runner=missing,
+            failures=failures,
+        )
