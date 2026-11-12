@@ -24,6 +24,9 @@ class TestType(str, Enum):
     REGRESSION = "regression"
 
 
+TestType.__test__ = False  # prevent pytest from trying to collect this class
+
+
 class FailureInfo(BaseModel):
     """One failing test as reported by the runner's machine-readable output."""
 
