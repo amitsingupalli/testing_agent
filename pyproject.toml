@@ -1,17 +1,31 @@
 [project]
 name = "testing-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Self-testing layer for coding agents: detect the stack, run unit/integration/regression suites, gate agent changes, and report failures."
 readme = "README.md"
 authors = [
     { name = "Amit Singupalli", email = "amitsingupalli26@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 testing-agent = "testing_agent:main"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+]
+
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
