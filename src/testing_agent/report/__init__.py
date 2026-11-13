@@ -17,14 +17,22 @@ class GateSummary(BaseModel):
     checks: list[dict[str, Any]] = []
 
 
-def build_report(target: str, results: list[RunResult], gate: GateSummary) -> dict[str, Any]:
-    """Assemble the canonical report dict shared by all renderers."""
+def build_report(
+    target: str,
+    results: list[RunResult],
+    gate: GateSummary,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assemble the canonical report dict shared by all renderers.
+
+    `extra` merges additional top-level sections (e.g. regression context).
+    """
     result_dicts: list[dict[str, Any]] = []
     for result in results:
         dumped = result.model_dump(mode="json")
         dumped["verdict"] = result.verdict  # property, not a field — inject manually
         result_dicts.append(dumped)
-    return {
+    report: dict[str, Any] = {
         "schema_version": 1,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "target": target,
@@ -32,3 +40,6 @@ def build_report(target: str, results: list[RunResult], gate: GateSummary) -> di
         "results": result_dicts,
         "gate": gate.model_dump(),
     }
+    if extra:
+        report.update(extra)
+    return report
