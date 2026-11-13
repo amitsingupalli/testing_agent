@@ -89,7 +89,15 @@ def _generate_with_verification(
     for round_number in range(1, feedback_rounds + 2):
         try:
             code = backend.generate(root, target, framework, timeout_seconds, feedback)
-            test_file = _write_test_file(root, target.suggested_test_file, code)
+            if getattr(backend, "writes_files", False):
+                # The backend wrote the file itself (e.g. the opencode agent).
+                test_file = root / target.suggested_test_file
+                if not test_file.is_file():
+                    raise GenerationError(
+                        f"backend '{backend.id}' did not create {target.suggested_test_file}"
+                    )
+            else:
+                test_file = _write_test_file(root, target.suggested_test_file, code)
         except GenerationError as error:
             return GenerationOutcome(
                 backend=backend.id,

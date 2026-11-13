@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from testing_agent.generate.models import GenerationTarget
@@ -78,3 +79,43 @@ def build_failure_feedback(failures: list[tuple[str, str | None]]) -> str:
     for name, message in failures[:10]:
         lines.append(f"- {name}: {message or 'no message'}")
     return "\n".join(lines)
+
+
+def build_opencode_prompt(
+    root: Path,
+    target: GenerationTarget,
+    framework: str,
+    failure_feedback: str | None = None,
+) -> str:
+    """Short agent-style prompt for `opencode run`.
+
+    opencode is an agent with repo access — it reads files itself, so we
+    don't embed source (which would blow Windows command-line limits).
+    """
+    instructions = _FRAMEWORK_INSTRUCTIONS.get(framework, framework)
+    symbols = ", ".join(f"`{name}`" for name in target.untested)
+    lines = [
+        f"Create or overwrite ONLY the file `{target.suggested_test_file}` in this repository.",
+        f"Read `{target.source_file}` and write {framework} tests covering: {symbols}.",
+        f"Framework rules: {instructions}",
+        "Test public behavior only; every test must pass against the current implementation; do not modify any other file.",
+        "When done, print only the word DONE.",
+    ]
+    if failure_feedback:
+        lines += ["Your previous attempt produced these failing tests — fix them:", failure_feedback]
+    return " ".join(lines)
+
+
+def extract_code_block(text: str) -> str:
+    """Extract test code from an LLM response.
+
+    Prefers the first fenced code block; falls back to the whole response.
+    """
+    fence = re.search(
+        r"```(?:python|javascript|js|typescript|ts)?\s*\n(.*?)```",
+        text,
+        re.DOTALL,
+    )
+    if fence:
+        return fence.group(1).strip() + "\n"
+    return text.strip() + "\n"

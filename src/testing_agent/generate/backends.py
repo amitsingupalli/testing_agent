@@ -13,6 +13,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from testing_agent.generate.models import GenerationTarget
+from testing_agent.generate.prompts import extract_code_block  # re-exported for convenience
+
+__all__ = ["Backend", "GenerationError", "ManifestBackend", "extract_code_block"]
 
 
 class GenerationError(Exception):
@@ -23,6 +26,9 @@ class Backend(ABC):
     """A test-code production strategy."""
 
     id: str = "unknown"
+    # True when the backend writes the test file itself (orchestrator must
+    # NOT overwrite it with parsed output — e.g. the opencode agent).
+    writes_files: bool = False
 
     @abstractmethod
     def is_available(self) -> bool:
@@ -60,20 +66,3 @@ class ManifestBackend(Backend):
         failure_feedback: str | None = None,
     ) -> str:
         raise GenerationError("manifest backend does not generate code")
-
-
-def extract_code_block(text: str) -> str:
-    """Extract test code from an LLM response.
-
-    Prefers the first fenced code block; falls back to the whole response.
-    """
-    import re
-
-    fence = re.search(
-        r"```(?:python|javascript|js|typescript|ts)?\s*\n(.*?)```",
-        text,
-        re.DOTALL,
-    )
-    if fence:
-        return fence.group(1).strip() + "\n"
-    return text.strip() + "\n"

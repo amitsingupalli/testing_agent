@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from testing_agent.generate.backends import Backend, GenerationError
 from testing_agent.generate.models import GenerationTarget
-from testing_agent.generate.prompts import build_generation_prompt, extract_code_block
+from testing_agent.generate.prompts import build_opencode_prompt, extract_code_block
+
+
+def _wrap_windows_shim(args: list[str]) -> list[str]:
+    """cmd /c wrapper for .cmd shims (opencode on Windows via npm)."""
+    if sys.platform == "win32":
+        return ["cmd", "/c", *args]
+    return args
 
 
 class OpenCodeBackend(Backend):
@@ -16,6 +24,7 @@ class OpenCodeBackend(Backend):
     reads the repo itself and writes the test file."""
 
     id = "opencode"
+    writes_files = True  # the opencode agent writes the test file itself
 
     def __init__(self, executable: str = "opencode") -> None:
         self._executable = executable
@@ -31,10 +40,11 @@ class OpenCodeBackend(Backend):
         timeout_seconds: int,
         failure_feedback: str | None = None,
     ) -> str:
-        prompt = build_generation_prompt(root, target, framework, failure_feedback)
+        prompt = build_opencode_prompt(root, target, framework, failure_feedback)
+        command = _wrap_windows_shim([self._executable, "run", prompt])
         try:
             completed = subprocess.run(
-                [self._executable, "run", prompt],
+                command,
                 cwd=str(root),
                 capture_output=True,
                 text=True,

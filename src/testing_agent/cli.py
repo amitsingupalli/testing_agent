@@ -209,7 +209,7 @@ def generate(
             root,
             backend_id=backend,
             max_files=max_files,
-            timeout_seconds=300,
+            timeout_seconds=600,
             feedback_rounds=2,
         )
     except GenerationError as error:
