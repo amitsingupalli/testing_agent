@@ -218,6 +218,10 @@ def generate(
 
     write_generation_report(root, report)
 
+    from testing_agent.report.generation_report import write_generation_markdown
+
+    write_generation_markdown(root, report)
+
     if as_json:
         console.print_json(report.model_dump_json())
     else:
