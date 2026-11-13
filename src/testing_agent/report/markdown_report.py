@@ -63,6 +63,21 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- {mark} **{check.get('name', '?')}** — {check.get('detail', '')}")
     lines.append("")
 
+    regression = report.get("regression_context")
+    if regression:
+        lines.append("## Regression context")
+        lines.append("")
+        changed = regression.get("changed_files") or []
+        lines.append(f"- Repository: {'yes' if regression.get('is_repo') else 'no'}")
+        lines.append(f"- Changed files: {len(changed)}")
+        for path in changed[:20]:
+            lines.append(f"  - `{path}`")
+        lines.append(
+            f"- Test changes: {'yes' if regression.get('has_test_changes') else 'no'} · "
+            f"Mode: {regression.get('mode', 'baseline')}"
+        )
+        lines.append("")
+
     return "\n".join(lines)
 
 

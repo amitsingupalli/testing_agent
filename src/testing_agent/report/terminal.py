@@ -69,3 +69,13 @@ def print_terminal(report: dict[str, Any], console: Console | None = None) -> No
             console.print(f"\n[bold]{result.get('runner')} — {failure.get('name', '?')}[/bold]")
             message = failure.get("message") or "no message"
             console.print(message)
+
+    regression = report.get("regression_context")
+    if regression:
+        console.print("\n[bold]Regression context[/bold]")
+        console.print(f"Repository: {'yes' if regression.get('is_repo') else 'no'}")
+        changed = regression.get("changed_files") or []
+        console.print(f"Changed files: {len(changed)}")
+        for path in changed[:10]:
+            console.print(f"  - {path}")
+        console.print(f"Mode: {regression.get('mode', 'baseline')}")

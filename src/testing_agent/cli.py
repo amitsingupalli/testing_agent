@@ -127,12 +127,30 @@ def run(
             continue
         results.append(runner.run(manifest, root, chosen, config.timeout_seconds))
 
+    extra: dict | None = None
+    if chosen == TestType.REGRESSION:
+        from testing_agent.git_context import collect_git_context
+
+        context = collect_git_context(root)
+        summary = context.summary()
+        for result in results:
+            result.note = f"{result.note} | {summary}" if result.note else summary
+        extra = {
+            "regression_context": {
+                "is_repo": context.is_repo,
+                "changed_files": context.changed_files,
+                "has_test_changes": context.has_test_changes,
+                "has_source_changes": context.has_source_changes,
+                "mode": "baseline (diff-aware selection lands in Phase 3)",
+            }
+        }
+
     gate_result = evaluate(results, config.gate, chosen)
     gate_summary = GateSummary(
         passed=gate_result.passed,
         checks=[check.model_dump() for check in gate_result.checks],
     )
-    report = build_report(str(root), results, gate_summary)
+    report = build_report(str(root), results, gate_summary, extra=extra)
     json_path = write_json_report(root, report)
     write_markdown_report(root, report)
 
