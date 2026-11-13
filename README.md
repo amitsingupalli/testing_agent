@@ -7,8 +7,10 @@
 - **Structured reports** — JSON + Markdown + rich terminal, written to `.testing-agent/`
 - **Windows-first** — subprocess handling that actually works on Windows (no shell hacks)
 
-> Status: **Phase 1 (MVP)** — unit, integration, and regression (baseline) runs with a gate.
-> Security, performance, and compatibility runners are planned for Phases 2–4.
+> Status: **Phase 2** — everything in Phase 1 **plus test generation** (gap scanning,
+> opencode/LLM backends, verify-and-retry loop) and **opencode integration**
+> (plugin tools, tester subagent, skill). Security, performance, and compatibility
+> runners are planned for Phases 3–4.
 
 ## Quickstart
 
@@ -24,6 +26,9 @@ uv run testing-agent run --path examples/node-demo
 
 # integration layer
 uv run testing-agent run --path examples/node-demo --type integration
+
+# regression baseline with git diff context
+uv run testing-agent run --path examples/node-demo --type regression
 
 # re-render the last report
 uv run testing-agent report --path examples/node-demo
@@ -48,13 +53,50 @@ detect  ──►  select runner  ──►  execute  ──►  parse (JUnit/JS
 5. **Report** — writes `last-report.json`, `last-report.md`, and a rich terminal
    summary including per-test failure details your agent can read.
 
-### Test layers in Phase 1
+### Test layers in Phase 1+2
 
-| Layer    | What runs today |
-| -------- | --------------- |
+| Layer    | What runs |
+| -------- | --------- |
 | unit     | `tests/` (pytest) or `tests/`+`tests/unit/` (Node) |
 | integration | `tests/integration/` (pytest, Node) — scoped run |
-| regression | baseline re-run of the unit suite (diff-aware baselines land in Phase 2) |
+| regression | baseline re-run of the unit suite + **git diff context** (changed files, test-vs-source) recorded in the report; diff-aware *selection* lands in Phase 3 |
+
+## Test generation (Phase 2)
+
+```bash
+uv run testing-agent generate --path examples/python-demo            # auto backend
+uv run testing-agent generate --path examples/python-demo -b manifest # no LLM: write gap manifest
+```
+
+How it works:
+
+1. **Gap scan** — AST/regex scan finds public functions/classes/exports that are
+   never referenced in any test file (Python + Node; Go/Rust coming).
+2. **Backend** — `auto` picks the first available:
+   `opencode` CLI → `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → gap manifest.
+   Override with `--backend opencode|anthropic|openai|manifest`.
+3. **Generate → verify → retry** — the backend writes `*_generated.*` test files
+   (never touching hand-written tests), the suite re-runs, and failures are fed
+   back for up to 2 more rounds.
+4. **Reports** — `.testing-agent/last-generation.json` + `last-generation.md`,
+   plus `gap-manifest.md` in manifest mode.
+
+## opencode integration (Phase 2)
+
+Ship-with-your-agent files live in [`opencode/`](opencode/):
+
+| File | Purpose |
+| --- | --- |
+| `plugin.ts` | opencode plugin: `testing_agent_run` / `testing_agent_detect` tools + background gate after file edits |
+| `agent/tester.md` | `tester` subagent: generates/fixes tests until the gate passes |
+| `skill/testing-agent/SKILL.md` | Teaches any agent when/how to run the loop |
+
+**Install into a project:** copy `plugin.ts` to `<project>/.opencode/plugins/testing-agent.ts`
+and the agent/skill files into `<project>/.opencode/agent/` and `.opencode/skill/`.
+Set `TESTING_AGENT_CMD="uvx testing-agent"` (or rely on the default `uvx` resolution)
+so the plugin can call the CLI. Restart opencode after installing.
+
+This repo dogfoods the integration: see `.opencode/`.
 
 ## Configuration
 
@@ -77,8 +119,8 @@ detect  ──►  select runner  ──►  execute  ──►  parse (JUnit/JS
 ## Roadmap
 
 - **Phase 1 (done)** — detection, unit/integration/regression runners, gate, reports
-- **Phase 2** — LLM test generation (opencode delegation + direct API + gap manifest), opencode plugin/subagent/skill, diff-aware regression
-- **Phase 3** — security (`npm audit`/`pip-audit`/semgrep), performance (k6/autocannon), system smoke runs, JUnit CI output
+- **Phase 2 (done)** — LLM test generation (opencode delegation + direct API + gap manifest), opencode plugin/subagent/skill, git-diff regression context
+- **Phase 3** — security (`npm audit`/`pip-audit`/semgrep), performance (k6/autocannon), system smoke runs, diff-aware test selection, JUnit CI output
 - **Phase 4** — compatibility (Playwright browser matrix), GitHub Action, PyPI publish
 
 ## Development
