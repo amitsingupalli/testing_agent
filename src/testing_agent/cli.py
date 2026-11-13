@@ -174,9 +174,55 @@ def report(
 @app.command()
 def generate(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Project directory."),
+    backend: str = typer.Option(
+        "auto", "--backend", "-b", help="Generation backend: auto, opencode, anthropic, openai, manifest."
+    ),
+    max_files: int = typer.Option(3, "--max-files", help="Maximum source files to cover."),
+    as_json: bool = typer.Option(False, "--json", help="Print the generation report JSON."),
 ) -> None:
-    """Generate tests for uncovered code (Phase 2)."""
-    typer.echo("Test generation lands in Phase 2 of the roadmap.")
+    """Generate tests for code without test coverage, then verify they pass."""
+    root = _resolve_root(path)
+    from testing_agent.generate.backends import GenerationError
+    from testing_agent.generate.generator import generate_tests, write_generation_report
+    from testing_agent.generate.models import GenerationReport
+
+    try:
+        report = generate_tests(
+            root,
+            backend_id=backend,
+            max_files=max_files,
+            timeout_seconds=300,
+            feedback_rounds=2,
+        )
+    except GenerationError as error:
+        typer.secho(f"error: {error}", fg="red", err=True)
+        raise typer.Exit(code=2) from error
+
+    write_generation_report(root, report)
+
+    if as_json:
+        console.print_json(report.model_dump_json())
+    else:
+        from rich.table import Table
+
+        table = Table(title=f"Generation ({report.backend} backend)")
+        for column in ("Source file", "Test file", "Rounds", "Status", "Note"):
+            table.add_column(column)
+        for outcome in report.outcomes:
+            status = "PASS" if outcome.success else "FAIL"
+            style = "green" if outcome.success else "red"
+            table.add_row(
+                outcome.source_file,
+                outcome.test_file or "—",
+                str(outcome.rounds),
+                f"[{style}]{status}[/{style}]",
+                (outcome.note or outcome.error or "")[:60],
+            )
+        console.print(table)
+        if report.manifest_path:
+            console.print(f"[yellow]Gap manifest: {report.manifest_path}[/yellow]")
+
+    raise typer.Exit(code=0 if report.all_success else 1)
 
 
 if __name__ == "__main__":
