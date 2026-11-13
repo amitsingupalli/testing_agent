@@ -113,8 +113,65 @@ def scan_python_gaps(root: Path) -> list[SourceFileGaps]:
     return file_gaps
 
 
+def scan_node_gaps(root: Path) -> list[SourceFileGaps]:
+    """Scan .js/.mjs/.cjs sources for exported symbols never referenced in tests.
+
+    Regex-based on purpose: no AST dependency, good enough to name the
+    exports an agent should cover.
+    """
+    corpus = _collect_test_corpus(root)
+    symbol_patterns = [
+        re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)", re.MULTILINE),
+        re.compile(r"^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)", re.MULTILINE),
+        re.compile(r"^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)", re.MULTILINE),
+        re.compile(r"^\s*(?:module\.)?exports\.([A-Za-z_$][\w$]*)\s*=", re.MULTILINE),
+        re.compile(r"^\s*module\.exports\s*=\s*\{([^}]*)\}", re.MULTILINE),
+    ]
+
+    file_gaps: list[SourceFileGaps] = []
+    for path, relative in _iter_source_files(root, (".js", ".mjs", ".cjs")):
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+
+        names: dict[str, SourceSymbol] = {}
+        for index, pattern in enumerate(symbol_patterns):
+            for match in pattern.finditer(text):
+                if index == len(symbol_patterns) - 1:
+                    # `module.exports = { a, b }` — names are comma-separated
+                    for raw in match.group(1).split(","):
+                        name = raw.strip().split(":")[0].strip()
+                        if name and re.fullmatch(r"[A-Za-z_$][\w$]*", name):
+                            line = text.count("\n", 0, match.start()) + 1
+                            names.setdefault(name, SourceSymbol(name=name, kind="export", line=line))
+                else:
+                    name = match.group(1)
+                    if name not in ("default",):
+                        line = text.count("\n", 0, match.start()) + 1
+                        names.setdefault(name, SourceSymbol(name=name, kind="export", line=line))
+
+        if not names:
+            continue
+        ordered = sorted(names.values(), key=lambda s: s.line)
+        tested = [s.name for s in ordered if _symbol_tested(s.name, corpus)]
+        untested = [s.name for s in ordered if s.name not in tested]
+        if untested:
+            file_gaps.append(
+                SourceFileGaps(
+                    file=str(relative).replace("\\", "/"),
+                    symbols=ordered,
+                    tested=tested,
+                    untested=untested,
+                )
+            )
+    return file_gaps
+
+
 def scan_gaps(root: Path, manifest: ProjectManifest) -> list[SourceFileGaps]:
     """Dispatch to the right scanner for the manifest's stack."""
     if manifest.stack == Stack.PYTHON:
         return scan_python_gaps(root)
+    if manifest.stack == Stack.NODE:
+        return scan_node_gaps(root)
     return []
