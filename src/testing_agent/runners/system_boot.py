@@ -103,18 +103,22 @@ def terminate_tree(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
     if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(process.pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    else:
-        process.terminate()
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=10,
+            )
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass  # fall through to direct terminate/kill
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
 
 
 class SystemRunner(Runner):
@@ -236,4 +240,9 @@ class SystemRunner(Runner):
                 failures=failures,
             )
         finally:
+            try:
+                with open(log_file, "ab") as teardown_log:
+                    teardown_log.write(b"\n--- system teardown ---\n")
+            except OSError:
+                pass
             terminate_tree(process)

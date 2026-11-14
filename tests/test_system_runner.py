@@ -124,9 +124,59 @@ def test_system_runner_happy_path(tmp_path, monkeypatch) -> None:
     assert result.passed == 3
     assert result.failed == 0
     assert "endpoints 3/3 ok" in (result.note or "")
-    # teardown must have killed the sleeper
+    # teardown must have killed the sleeper and marked the boot log
     time.sleep(0.2)
     assert result.duration_ms >= 0
+
+
+def test_system_runner_writes_teardown_marker(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.system_boot as module
+
+    monkeypatch.setattr(
+        module,
+        "check_url",
+        lambda base, path, expected, timeout_seconds=5.0: module.SystemCheckOutcome(
+            path=path, ok=True, detail=f"status {expected}"
+        ),
+    )
+    config = ProjectConfig(
+        root=str(tmp_path),
+        system=SystemConfig(boot_command="python -c \"import time; time.sleep(3)\""),
+    )
+
+    SystemRunner().run(
+        make_node_manifest(), tmp_path, TestType.SYSTEM, timeout_seconds=30, config=config
+    )
+
+    log = tmp_path / ".testing-agent" / "logs" / "system-boot-system.log"
+    assert log.is_file()
+    assert "--- system teardown ---" in log.read_text(encoding="utf-8", errors="replace")
+
+
+def test_terminate_tree_falls_back_to_kill_when_taskkill_fails(tmp_path, monkeypatch) -> None:
+    import subprocess
+
+    import testing_agent.runners.system_boot as module
+
+    def failing_taskkill(*args, **kwargs):
+        raise subprocess.SubprocessError("taskkill unavailable")
+
+    monkeypatch.setattr(module.subprocess, "run", failing_taskkill)
+
+    sleeper = subprocess.Popen(
+        ["python", "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+    try:
+        assert sleeper.poll() is None
+        module.terminate_tree(sleeper)
+        # after fallback the process must be dead
+        assert sleeper.poll() is not None
+    finally:
+        if sleeper.poll() is None:
+            sleeper.kill()
 
 
 def test_system_runner_failing_endpoint(tmp_path, monkeypatch) -> None:
