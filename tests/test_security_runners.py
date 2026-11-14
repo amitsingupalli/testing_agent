@@ -12,6 +12,7 @@ from testing_agent.runners.security_npm import (
     parse_npm_audit_json,
 )
 from testing_agent.runners.security_pip import PipAuditRunner, parse_pip_audit_json
+from testing_agent.runners.security_semgrep import SemgrepRunner, parse_semgrep_json
 
 
 def make_node_manifest() -> ProjectManifest:
@@ -263,3 +264,106 @@ def test_bandit_runner_threshold_breach(tmp_path, monkeypatch) -> None:
     assert result.success is False
     assert result.failed == 1
     assert "high 1 > 0" in (result.note or "")
+
+
+# ---------------------------------------------------------------------------
+# semgrep
+# ---------------------------------------------------------------------------
+
+
+def test_parse_semgrep_json_extracts_findings() -> None:
+    text = """
+    {
+      "results": [
+        {"check_id": "python.security.subprocess", "path": "app.py",
+         "start": {"line": 10}, "extra": {"message": "subprocess without shell=False"}},
+        {"check_id": "generic.secrets", "path": "config.js",
+         "start": {"line": 3}, "extra": {"message": "hardcoded secret"}}
+      ]
+    }
+    """
+    findings = parse_semgrep_json(text)
+
+    assert len(findings) == 2
+    assert findings[0].name == "app.py:10 [python.security.subprocess]"
+    assert "subprocess" in (findings[0].message or "")
+
+
+def test_parse_semgrep_json_invalid_or_empty() -> None:
+    assert parse_semgrep_json("not json") == []
+    assert parse_semgrep_json("{}") == []
+    assert parse_semgrep_json('{"results": []}') == []
+
+
+def test_semgrep_runner_applies_to_python_and_node() -> None:
+    runner = SemgrepRunner()
+    assert runner.applies(make_python_manifest())
+    assert runner.applies(make_node_manifest())
+    assert not runner.applies(ProjectManifest(stack=Stack.GO, test_runner="go test"))
+
+
+def test_semgrep_runner_skipped_without_rules_or_optin(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.security_semgrep as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+
+    result = SemgrepRunner().run(
+        make_python_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+
+    assert result.no_tests is True
+    assert result.missing_runner is False
+    assert "skipped" in (result.note or "")
+
+
+def test_semgrep_runner_runs_with_semyaml_rules(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.security_semgrep as module
+
+    (tmp_path / ".semgrep.yml").write_text("rules: []")
+    monkeypatch.setattr(module.shutil, "which", lambda name: "semgrep.exe")
+
+    captured = {}
+
+    def fake_run(command, cwd, timeout, log):
+        captured["command"] = command
+        log.write_text('{"results": []}')
+        return 0, 250, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+
+    result = SemgrepRunner().run(
+        make_python_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+
+    assert result.success is True
+    assert result.failed == 0
+    assert "--config" not in captured["command"]
+    assert "auto" not in captured["command"]
+
+
+def test_semgrep_runner_uses_auto_when_optedin(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.security_semgrep as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "semgrep.exe")
+
+    captured = {}
+
+    def fake_run(command, cwd, timeout, log):
+        captured["command"] = command
+        log.write_text('{"results": [{"check_id": "c", "path": "a.py", "start": {"line": 1}, "extra": {"message": "m"}}]}')
+        return 0, 250, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+    from testing_agent.config import ProjectConfig, SecurityConfig
+
+    result = SemgrepRunner().run(
+        make_python_manifest(),
+        tmp_path,
+        TestType.SECURITY,
+        timeout_seconds=30,
+        config=ProjectConfig(root=str(tmp_path), security=SecurityConfig(use_semgrep_auto=True)),
+    )
+
+    assert result.success is False
+    assert result.failed == 1
+    assert captured["command"][2:4] == ["--config", "auto"]
