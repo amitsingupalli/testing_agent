@@ -74,6 +74,7 @@ class JestRunner(Runner):
         root: Path,
         test_type: TestType,
         timeout_seconds: int = 300,
+        config: object | None = None,
     ) -> RunResult:
         manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
         target_args: list[str] = []

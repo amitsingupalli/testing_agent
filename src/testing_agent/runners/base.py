@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from testing_agent.config import ProjectConfig
 from testing_agent.detect.models import ProjectManifest
 
 ARTIFACT_DIR_NAME = ".testing-agent"
@@ -22,6 +23,9 @@ class TestType(str, Enum):
     UNIT = "unit"
     INTEGRATION = "integration"
     REGRESSION = "regression"
+    SECURITY = "security"
+    PERFORMANCE = "performance"
+    SYSTEM = "system"
 
 
 TestType.__test__ = False  # prevent pytest from trying to collect this class
@@ -90,8 +94,13 @@ class Runner(ABC):
         root: Path,
         test_type: TestType,
         timeout_seconds: int = 300,
+        config: ProjectConfig | None = None,
     ) -> RunResult:
-        """Execute the suite and return a parsed result."""
+        """Execute the suite and return a parsed result.
+
+        `config` carries layer-specific settings (thresholds, endpoints, …);
+        adapters that don't need it may ignore it.
+        """
 
 
 def artifact_dir(root: Path) -> Path:
