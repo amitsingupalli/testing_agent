@@ -10,6 +10,11 @@ from testing_agent.runners.perf_autocannon import (
     parse_autocannon_json,
 )
 from testing_agent.runners.perf_k6 import K6Runner, evaluate_k6, parse_k6_summary
+from testing_agent.runners.perf_lighthouse import (
+    LighthouseRunner,
+    evaluate_lighthouse,
+    parse_lighthouse_json,
+)
 
 
 def test_parse_autocannon_json_extracts_metrics() -> None:
@@ -246,3 +251,110 @@ def test_k6_runner_ok_run(tmp_path, monkeypatch) -> None:
     assert result.success is True
     assert result.failed == 0
     assert "p95=20ms" in (result.note or "")
+
+
+# ---------------------------------------------------------------------------
+# lighthouse
+# ---------------------------------------------------------------------------
+
+
+def test_parse_lighthouse_json_extracts_score() -> None:
+    text = '{"categories": {"performance": {"score": 0.98}}}'
+    summary = parse_lighthouse_json(text)
+    assert summary.parsed is True
+    assert summary.performance_score == 0.98
+
+
+def test_parse_lighthouse_json_invalid_or_missing_category() -> None:
+    assert parse_lighthouse_json("not json").parsed is False
+    assert parse_lighthouse_json("{}").parsed is False
+    assert parse_lighthouse_json('{"categories": {"performance": {}}}').parsed is False
+    assert parse_lighthouse_json('{"categories": {"seo": {"score": 1.0}}}').parsed is False
+
+
+def test_evaluate_lighthouse_thresholds() -> None:
+    ok, detail = evaluate_lighthouse(
+        parse_lighthouse_json('{"categories": {"performance": {"score": 0.9}}}'),
+        PerformanceConfig(min_lighthouse_score=80),
+    )
+    assert ok is True
+    assert "90.0/100" in detail
+
+    ok2, detail2 = evaluate_lighthouse(
+        parse_lighthouse_json('{"categories": {"performance": {"score": 0.5}}}'),
+        PerformanceConfig(min_lighthouse_score=80),
+    )
+    assert ok2 is False
+    assert "below minimum 80" in detail2
+
+    ok3, detail3 = evaluate_lighthouse(
+        parse_lighthouse_json('{"categories": {"performance": {"score": 0.5}}}'),
+        PerformanceConfig(),
+    )
+    assert ok3 is True
+    assert "no minimum set" in detail3
+
+
+def test_lighthouse_runner_skipped_by_default(tmp_path) -> None:
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    result = LighthouseRunner().run(
+        ProjectManifest(stack=Stack.NODE, test_runner="node"),
+        tmp_path,
+        TestType.PERFORMANCE,
+        timeout_seconds=30,
+    )
+
+    assert result.no_tests is True
+    assert "run_lighthouse is disabled" in (result.note or "")
+
+
+def test_lighthouse_runner_missing_binary(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.perf_lighthouse as module
+    from testing_agent.config import ProjectConfig
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+    config = ProjectConfig(
+        root=str(tmp_path),
+        performance=PerformanceConfig(run_lighthouse=True, target_url="http://127.0.0.1:8901"),
+    )
+    result = LighthouseRunner().run(
+        ProjectManifest(stack=Stack.NODE, test_runner="node"),
+        tmp_path,
+        TestType.PERFORMANCE,
+        timeout_seconds=30,
+        config=config,
+    )
+
+    assert result.missing_runner is True
+    assert "npm install -g lighthouse" in (result.note or "")
+
+
+def test_lighthouse_runner_ok_run(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.perf_lighthouse as module
+    from testing_agent.config import ProjectConfig
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "lighthouse.cmd")
+
+    def fake_run(command, cwd, timeout, log):
+        log.write_text('{"categories": {"performance": {"score": 0.95}}}')
+        return 0, 30000, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+
+    config = ProjectConfig(
+        root=str(tmp_path),
+        performance=PerformanceConfig(run_lighthouse=True, target_url="http://127.0.0.1:8901"),
+    )
+    result = LighthouseRunner().run(
+        ProjectManifest(stack=Stack.NODE, test_runner="node"),
+        tmp_path,
+        TestType.PERFORMANCE,
+        timeout_seconds=300,
+        config=config,
+    )
+
+    assert result.success is True
+    assert "95.0/100" in (result.note or "")
