@@ -1,4 +1,4 @@
-"""Zero-dependency HTTP server for exercising system/performance runners."""
+// Zero-dependency HTTP server for exercising system/performance runners.
 
 import http from "node:http";
 
