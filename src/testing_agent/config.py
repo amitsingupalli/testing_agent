@@ -61,16 +61,54 @@ class SecurityConfig(BaseModel):
     use_semgrep_auto: bool = False  # auto rules need network; opt-in
 
 
+def default_profiles() -> dict[str, GatePolicy]:
+    """Built-in gate profiles: dev, ci, release."""
+    return {
+        "dev": GatePolicy(
+            require_types=["unit"],
+            min_pass_rate=1.0,
+            fail_on_missing_runner=False,
+            fail_on_no_tests=False,
+        ),
+        "ci": GatePolicy(
+            require_types=["unit", "integration"],
+            min_pass_rate=1.0,
+            fail_on_missing_runner=False,
+            fail_on_no_tests=False,
+        ),
+        "release": GatePolicy(
+            require_types=["unit", "integration", "security", "performance"],
+            min_pass_rate=1.0,
+            fail_on_missing_runner=True,
+            fail_on_no_tests=False,
+        ),
+    }
+
+
 class ProjectConfig(BaseModel):
     """Persisted project configuration (written by `testing-agent init`)."""
 
     root: str
     timeout_seconds: int = Field(default=300, ge=1)
     gate: GatePolicy = Field(default_factory=GatePolicy)
+    profiles: dict[str, GatePolicy] = Field(default_factory=default_profiles)
+    active_profile: str | None = None
     system: SystemConfig = Field(default_factory=SystemConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     runner_overrides: dict[str, str] = Field(default_factory=dict)
+
+
+def resolve_policy(config: ProjectConfig, profile_name: str | None) -> GatePolicy:
+    """Pick the gate policy: explicit --profile beats active_profile beats base gate."""
+    name = profile_name or config.active_profile
+    if name is None:
+        return config.gate
+    profiles = config.profiles or default_profiles()
+    if name not in profiles:
+        known = ", ".join(sorted(profiles))
+        raise KeyError(f"unknown gate profile '{name}' — known profiles: {known}")
+    return profiles[name]
 
 
 def config_path(root: Path) -> Path:

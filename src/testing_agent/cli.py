@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from testing_agent.config import ProjectConfig, load_config, save_config
+from testing_agent.config import ProjectConfig, load_config, resolve_policy, save_config
 from testing_agent.detect import detect_project
 from testing_agent.gate import evaluate
 from testing_agent.report import GateSummary, build_report
@@ -110,6 +110,9 @@ def run(
         TestTypeChoice.unit, "--type", "-t", help="Test layer to run."
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the report JSON to stdout."),
+    profile: str | None = typer.Option(
+        None, "--profile", help="Gate profile: dev, ci, release (or a custom profile name)."
+    ),
 ) -> None:
     """Run the applicable test suites, gate the result, and write a report."""
     root = _resolve_root(path)
@@ -117,6 +120,11 @@ def run(
 
     detection = detect_project(root)
     config = load_config(root) or ProjectConfig(root=str(root))
+    try:
+        policy = resolve_policy(config, profile)
+    except KeyError as error:
+        typer.secho(f"error: {error}", fg="red", err=True)
+        raise typer.Exit(code=2) from error
 
     results: list[RunResult] = []
     if chosen in _NEW_TYPES:
@@ -179,7 +187,7 @@ def run(
             }
         }
 
-    gate_result = evaluate(results, config.gate, chosen)
+    gate_result = evaluate(results, policy, chosen)
     gate_summary = GateSummary(
         passed=gate_result.passed,
         checks=[check.model_dump() for check in gate_result.checks],
