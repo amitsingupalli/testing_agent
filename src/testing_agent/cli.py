@@ -113,6 +113,7 @@ def run(
     profile: str | None = typer.Option(
         None, "--profile", help="Gate profile: dev, ci, release (or a custom profile name)."
     ),
+    junit: bool = typer.Option(False, "--junit", help="Also write junit-report.xml for CI."),
 ) -> None:
     """Run the applicable test suites, gate the result, and write a report."""
     root = _resolve_root(path)
@@ -195,12 +196,20 @@ def run(
     report = build_report(str(root), results, gate_summary, extra=extra)
     json_path = write_json_report(root, report)
     write_markdown_report(root, report)
+    junit_path: Path | None = None
+    if junit:
+        from testing_agent.report.junit_report import write_junit_report
+
+        junit_path = write_junit_report(root, report)
 
     if as_json:
         console.print_json(_report_json(report))
     else:
         print_terminal(report, console)
-        console.print(f"\n[dim]Reports written: {json_path} (+ last-report.md)[/dim]")
+        written = f"Reports written: {json_path} (+ last-report.md)"
+        if junit_path:
+            written += f" (+ junit-report.xml)"
+        console.print(f"\n[dim]{written}[/dim]")
 
     raise typer.Exit(code=0 if gate_result.passed else 1)
 
