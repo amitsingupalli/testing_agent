@@ -5,6 +5,7 @@ from __future__ import annotations
 from testing_agent.config import SecurityConfig
 from testing_agent.detect.models import ProjectManifest, Stack
 from testing_agent.runners.base import TestType
+from testing_agent.runners.security_bandit import BanditRunner, parse_bandit_json
 from testing_agent.runners.security_npm import (
     NpmAuditRunner,
     evaluate_thresholds,
@@ -188,3 +189,77 @@ def test_pip_audit_runner_thresholds(tmp_path, monkeypatch) -> None:
         config=ProjectConfig(root=str(tmp_path), security=SecurityConfig(max_total=1)),
     )
     assert result3.success is True
+
+
+# ---------------------------------------------------------------------------
+# bandit
+# ---------------------------------------------------------------------------
+
+
+def test_parse_bandit_json_extracts_findings() -> None:
+    text = """
+    {
+      "results": [
+        {"filename": "app.py", "line_number": 42, "issue_severity": "HIGH",
+         "issue_confidence": "HIGH", "test_id": "B102", "issue_text": "exec used"},
+        {"filename": "util.py", "line_number": 7, "issue_severity": "LOW",
+         "issue_confidence": "MEDIUM", "test_id": "B101", "issue_text": "assert"}
+      ]
+    }
+    """
+    findings, counts = parse_bandit_json(text)
+
+    assert len(findings) == 2
+    assert findings[0].name == "app.py:42 [B102]"
+    assert "high" in (findings[0].message or "")
+    assert "exec used" in (findings[0].message or "")
+    assert counts == {"high": 1, "low": 1}
+
+
+def test_parse_bandit_json_invalid_or_empty() -> None:
+    assert parse_bandit_json("not json") == ([], {})
+    assert parse_bandit_json("{}") == ([], {})
+    assert parse_bandit_json('{"results": []}') == ([], {})
+
+
+def test_bandit_runner_applies_to_python_only() -> None:
+    runner = BanditRunner()
+    assert runner.applies(make_python_manifest())
+    assert not runner.applies(make_node_manifest())
+
+
+def test_bandit_runner_missing_binary(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.security_bandit as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+
+    result = BanditRunner().run(
+        make_python_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+
+    assert result.missing_runner is True
+    assert "pip install bandit" in (result.note or "")
+
+
+def test_bandit_runner_threshold_breach(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.security_bandit as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "bandit.exe")
+    payload = (
+        '{"results": [{"filename": "app.py", "line_number": 9, "issue_severity": "HIGH", '
+        '"issue_confidence": "HIGH", "test_id": "B102", "issue_text": "exec used"}]}'
+    )
+
+    def fake_run(command, cwd, timeout, log):
+        log.write_text(payload)
+        return 0, 500, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+
+    result = BanditRunner().run(
+        make_python_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+
+    assert result.success is False
+    assert result.failed == 1
+    assert "high 1 > 0" in (result.note or "")
