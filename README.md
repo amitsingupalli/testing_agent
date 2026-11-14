@@ -7,10 +7,10 @@
 - **Structured reports** — JSON + Markdown + rich terminal, written to `.testing-agent/`
 - **Windows-first** — subprocess handling that actually works on Windows (no shell hacks)
 
-> Status: **Phase 2** — everything in Phase 1 **plus test generation** (gap scanning,
-> opencode/LLM backends, verify-and-retry loop) and **opencode integration**
-> (plugin tools, tester subagent, skill). Security, performance, and compatibility
-> runners are planned for Phases 3–4.
+> Status: **Phase 3** — everything in Phases 1–2 **plus security, performance, and
+> system layers** (npm audit, pip-audit, bandit, semgrep, autocannon, k6, Lighthouse,
+> boot-and-smoke), gate profiles, JUnit CI output, and a combined summary across
+> runners. Compatibility (Playwright browser matrix) and publishing land in Phase 4.
 
 ## Quickstart
 
@@ -59,7 +59,59 @@ detect  ──►  select runner  ──►  execute  ──►  parse (JUnit/JS
 | -------- | --------- |
 | unit     | `tests/` (pytest) or `tests/`+`tests/unit/` (Node) |
 | integration | `tests/integration/` (pytest, Node) — scoped run |
-| regression | baseline re-run of the unit suite + **git diff context** (changed files, test-vs-source) recorded in the report; diff-aware *selection* lands in Phase 3 |
+| regression | baseline re-run of the unit suite + **git diff context** (changed files, test-vs-source) recorded in the report; diff-aware *selection* lands in Phase 4 |
+| security | `npm audit --json` (Node, needs `package-lock.json`), `pip-audit` + `bandit` (Python), `semgrep` (opt-in: needs `.semgrep.yml` or `use_semgrep_auto`) |
+| performance | `autocannon` (Node, `npx -y`), `k6` (needs `k6_script`), Lighthouse (opt-in) — latency p97.5/RPS thresholds |
+| system | boots the app (`boot_command`), polls a healthcheck, smoke-checks endpoints, tears down the process tree |
+
+## Security, performance & system layers (Phase 3)
+
+```bash
+# security: vulnerability + code scanning (per-stack runners)
+uv run testing-agent run --path examples/node-demo --type security
+
+# system: boot the app, healthcheck, endpoint smoke checks, teardown
+uv run testing-agent run --path examples/webapp-demo --type system
+
+# performance: autocannon/k6 against target_url with thresholds
+uv run testing-agent run --path examples/webapp-demo --type performance
+
+# CI-friendly: JUnit XML for your pipeline
+uv run testing-agent run --path examples/webapp-demo --type unit --junit
+```
+
+Self-gating runners: each runner skips itself with a `NO TESTS` result when its
+prerequisite is missing (no lockfile, no k6 script, no `boot_command`, …), so the
+gate stays honest and agents get actionable notes instead of false failures.
+
+Gate profiles choose how strict the gate is:
+
+| Profile | Required layers | Missing runner |
+| --- | --- | --- |
+| `dev` (default) | unit | warn |
+| `ci` | unit + integration | warn |
+| `release` | unit + integration + security + performance | **fail** |
+
+```bash
+uv run testing-agent run --path . --type security --profile release
+```
+
+Custom profiles: add entries under `profiles` in `.testing-agent.json` (keys
+`dev`, `ci`, `release` are pre-filled by default).
+
+The system layer config in `.testing-agent.json`:
+
+```json
+{
+  "system": {
+    "boot_command": "node server.js",
+    "target_url": "http://127.0.0.1:8901",
+    "boot_timeout_seconds": 60,
+    "healthcheck_path": "/health",
+    "endpoints": [{ "path": "/", "expected_status": 200 }]
+  }
+}
+```
 
 ## Test generation (Phase 2)
 
@@ -120,8 +172,8 @@ This repo dogfoods the integration: see `.opencode/`.
 
 - **Phase 1 (done)** — detection, unit/integration/regression runners, gate, reports
 - **Phase 2 (done)** — LLM test generation (opencode delegation + direct API + gap manifest), opencode plugin/subagent/skill, git-diff regression context
-- **Phase 3** — security (`npm audit`/`pip-audit`/semgrep), performance (k6/autocannon), system smoke runs, diff-aware test selection, JUnit CI output
-- **Phase 4** — compatibility (Playwright browser matrix), GitHub Action, PyPI publish
+- **Phase 3 (done)** — security (`npm audit`/`pip-audit`/bandit/semgrep), performance (autocannon/k6/Lighthouse), system boot-and-smoke, gate profiles, JUnit CI output, combined summary
+- **Phase 4** — compatibility (Playwright browser matrix), diff-aware test selection, GitHub Action, PyPI publish
 
 ## Development
 
