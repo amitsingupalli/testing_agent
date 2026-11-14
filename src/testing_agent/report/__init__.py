@@ -17,6 +17,34 @@ class GateSummary(BaseModel):
     checks: list[dict[str, Any]] = []
 
 
+def _combined_summary(result_dicts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate totals across all runners, grouped by test type."""
+    by_type: dict[str, dict[str, Any]] = {}
+    total = {"runners": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0}
+    for result in result_dicts:
+        test_type = str(result.get("test_type", "unknown"))
+        bucket = by_type.setdefault(
+            test_type,
+            {"runners": [], "passed": 0, "failed": 0, "errors": 0, "skipped": 0},
+        )
+        count = not (result.get("no_tests") or result.get("missing_runner"))
+        if count:
+            runner = str(result.get("runner", "?"))
+            if runner not in bucket["runners"]:
+                bucket["runners"].append(runner)
+            total["runners"] += 1
+            for key in ("passed", "failed", "errors", "skipped"):
+                bucket[key] += int(result.get(key, 0) or 0)
+                total[key] += int(result.get(key, 0) or 0)
+    return {
+        "total": total,
+        "by_type": by_type,
+        "active": bool(result_dicts) and any(
+            not (r.get("no_tests") or r.get("missing_runner")) for r in result_dicts
+        ),
+    }
+
+
 def build_report(
     target: str,
     results: list[RunResult],
@@ -38,6 +66,7 @@ def build_report(
         "target": target,
         "verdict": "PASS" if gate.passed else "FAIL",
         "results": result_dicts,
+        "summary": _combined_summary(result_dicts),
         "gate": gate.model_dump(),
     }
     if extra:

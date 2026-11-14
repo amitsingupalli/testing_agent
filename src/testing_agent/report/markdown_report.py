@@ -54,6 +54,29 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append("_No test runners ran for this target._")
         lines.append("")
 
+    summary = report.get("summary")
+    if summary and summary.get("active"):
+        lines.append("## Summary")
+        lines.append("")
+        total = summary.get("total") or {}
+        lines.append(
+            f"- **Runners:** {total.get('runners', 0)} · "
+            f"**Passed:** {total.get('passed', 0)} · "
+            f"**Failed:** {total.get('failed', 0)} · "
+            f"**Errors:** {total.get('errors', 0)} · "
+            f"**Skipped:** {total.get('skipped', 0)}"
+        )
+        by_type = summary.get("by_type") or {}
+        for test_type in sorted(by_type):
+            bucket = by_type[test_type]
+            runners = ", ".join(bucket.get("runners") or []) or "—"
+            lines.append(
+                f"- `{test_type}`: {bucket.get('passed', 0)} passed / "
+                f"{bucket.get('failed', 0)} failed / {bucket.get('errors', 0)} errors "
+                f"({runners})"
+            )
+        lines.append("")
+
     gate = report.get("gate") or {}
     lines.append("## Gate")
     lines.append("")

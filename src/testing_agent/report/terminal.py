@@ -42,6 +42,27 @@ def print_terminal(report: dict[str, Any], console: Console | None = None) -> No
     else:
         console.print("[yellow]No test runners ran for this target.[/yellow]")
 
+    summary = report.get("summary")
+    if summary and summary.get("active"):
+        total = summary.get("total") or {}
+        console.print("\n[bold]Summary[/bold]")
+        console.print(
+            f"Runners: {total.get('runners', 0)} · "
+            f"Passed: [green]{total.get('passed', 0)}[/green] · "
+            f"Failed: [red]{total.get('failed', 0)}[/red] · "
+            f"Errors: [red]{total.get('errors', 0)}[/red] · "
+            f"Skipped: {total.get('skipped', 0)}"
+        )
+        by_type = summary.get("by_type") or {}
+        for test_type in sorted(by_type):
+            bucket = by_type[test_type]
+            runners = ", ".join(bucket.get("runners") or []) or "—"
+            console.print(
+                f"  {test_type}: {bucket.get('passed', 0)} passed / "
+                f"{bucket.get('failed', 0)} failed / {bucket.get('errors', 0)} errors "
+                f"({runners})"
+            )
+
     gate = report.get("gate") or {}
     checks = gate.get("checks") or []
     if checks:
