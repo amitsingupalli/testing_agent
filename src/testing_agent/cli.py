@@ -61,11 +61,22 @@ def init(
     config = existing or ProjectConfig(root=str(root))
     if existing is None:
         config.root = str(root)
+        # Prefill system/performance hints for the common single Node app case.
+        node_manifests = [m for m in detection.manifests if m.stack.value == "node"]
+        if len(node_manifests) == 1 and len(detection.manifests) == 1:
+            config.system.boot_command = "npm start"
+            config.system.target_url = "http://127.0.0.1:3000"
+            config.performance.target_url = "http://127.0.0.1:3000"
     file_path = save_config(root, config)
 
     console.print(f"[green]Configuration written to {file_path}[/green]")
     if detection.manifests:
         console.print(f"Detected {len(detection.manifests)} project(s) — run [bold]detect[/bold] for details.")
+        if config.system.boot_command:
+            console.print(
+                f"[cyan]System layer hint: boot `{config.system.boot_command}` "
+                f"→ {config.system.target_url} (edit .testing-agent.json to adjust)[/cyan]"
+            )
     else:
         console.print("[yellow]No known stacks detected here yet.[/yellow]")
 
