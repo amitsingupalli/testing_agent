@@ -10,6 +10,7 @@ from testing_agent.runners.security_npm import (
     evaluate_thresholds,
     parse_npm_audit_json,
 )
+from testing_agent.runners.security_pip import PipAuditRunner, parse_pip_audit_json
 
 
 def make_node_manifest() -> ProjectManifest:
@@ -87,3 +88,103 @@ def test_npm_audit_runner_missing_npm(tmp_path, monkeypatch) -> None:
 
     assert result.missing_runner is True
     assert result.success is False
+
+
+# ---------------------------------------------------------------------------
+# pip-audit
+# ---------------------------------------------------------------------------
+
+
+def make_python_manifest() -> ProjectManifest:
+    return ProjectManifest(stack=Stack.PYTHON, test_runner="pytest")
+
+
+def test_parse_pip_audit_json_extracts_findings() -> None:
+    text = """
+    {
+      "dependencies": [
+        {"name": "requests", "version": "2.28.0",
+         "vulns": [{"id": "GHSA-j8r2-6x86-q33q", "description": "Cookie leak"}]},
+        {"name": "flask", "version": "2.0.0", "vulns": []},
+        {"name": "jinja2", "version": "3.0.0",
+         "vulns": [{"id": "GHSA-h5c8-r9wp-2xm3", "description": "XSS"},
+                    {"id": "PYSEC-2023-1", "description": "sandbox escape"}]}
+      ]
+    }
+    """
+    findings, total = parse_pip_audit_json(text)
+
+    assert total == 3
+    assert findings[0].name == "requests==2.28.0"
+    assert "GHSA-j8r2-6x86-q33q" in (findings[0].message or "")
+    assert findings[2].name == "jinja2==3.0.0"
+
+
+def test_parse_pip_audit_json_invalid_or_empty() -> None:
+    assert parse_pip_audit_json("not json") == ([], 0)
+    assert parse_pip_audit_json("{}") == ([], 0)
+    assert parse_pip_audit_json('{"dependencies": []}') == ([], 0)
+
+
+def test_pip_audit_runner_applies_to_python_only() -> None:
+    runner = PipAuditRunner()
+    assert runner.applies(make_python_manifest())
+    assert not runner.applies(make_node_manifest())
+
+
+def test_pip_audit_runner_missing_pip_audit(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.security_pip as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+
+    result = PipAuditRunner().run(
+        make_python_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+
+    assert result.missing_runner is True
+    assert "pip install pip-audit" in (result.note or "")
+
+
+def test_pip_audit_runner_thresholds(tmp_path, monkeypatch) -> None:
+    """Fake run_command to simulate a pip-audit run reporting one vulnerability."""
+    import testing_agent.runners.security_pip as module
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "pip-audit.exe")
+
+    payload = (
+        '{"dependencies": [{"name": "requests", "version": "2.28.0", '
+        '"vulns": [{"id": "GHSA-j8r2-6x86-q33q", "description": "Cookie leak"}]}]}'
+    )
+
+    def fake_run(command, cwd, timeout, log):
+        log.write_text(payload)
+        return 0, 1234, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+    from testing_agent.config import ProjectConfig, SecurityConfig
+
+    result = PipAuditRunner().run(
+        make_python_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+    assert result.success is False
+    assert result.failed == 1
+    assert "no total threshold set" in (result.note or "")
+
+    result2 = PipAuditRunner().run(
+        make_python_manifest(),
+        tmp_path,
+        TestType.SECURITY,
+        timeout_seconds=30,
+        config=ProjectConfig(root=str(tmp_path), security=SecurityConfig(max_total=0)),
+    )
+    assert result2.success is False
+    assert "total 1 > 0" in (result2.note or "")
+
+    result3 = PipAuditRunner().run(
+        make_python_manifest(),
+        tmp_path,
+        TestType.SECURITY,
+        timeout_seconds=30,
+        config=ProjectConfig(root=str(tmp_path), security=SecurityConfig(max_total=1)),
+    )
+    assert result3.success is True
