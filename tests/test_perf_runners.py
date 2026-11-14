@@ -9,6 +9,7 @@ from testing_agent.runners.perf_autocannon import (
     evaluate_performance,
     parse_autocannon_json,
 )
+from testing_agent.runners.perf_k6 import K6Runner, evaluate_k6, parse_k6_summary
 
 
 def test_parse_autocannon_json_extracts_metrics() -> None:
@@ -122,3 +123,126 @@ def test_autocannon_runner_threshold_breach(tmp_path, monkeypatch) -> None:
     assert result.failed == 1
     assert len(result.failures) == 1
     assert "p97.5 latency 900ms > 100.0ms" in (result.note or "")
+
+
+# ---------------------------------------------------------------------------
+# k6
+# ---------------------------------------------------------------------------
+
+
+def test_parse_k6_summary_extracts_metrics() -> None:
+    text = """
+    {
+      "metrics": {
+        "http_req_duration": {"avg": 4.9, "max": 30, "p(90)": 8, "p(95)": 11.5},
+        "http_reqs": {"count": 4000, "rate": 800.5},
+        "http_req_failed": {"rate": 0.001}
+      }
+    }
+    """
+    summary = parse_k6_summary(text)
+
+    assert summary.parsed is True
+    assert summary.latency_p95 == 11.5
+    assert summary.requests_per_second == 800.5
+    assert summary.errors == 0.001
+
+
+def test_parse_k6_summary_invalid_or_empty() -> None:
+    assert parse_k6_summary("not json").parsed is False
+    assert parse_k6_summary("{}").parsed is False
+    assert parse_k6_summary('{"metrics": {}}').parsed is True
+
+
+def test_evaluate_k6_breach_and_ok() -> None:
+    breach = parse_k6_summary(
+        '{"metrics": {"http_req_duration": {"p(95)": 200}, "http_reqs": {"rate": 50}}}'
+    )
+    ok, detail = evaluate_k6(breach, PerformanceConfig(max_latency_p975_ms=100))
+    assert ok is False
+    assert "p95 latency 200ms > 100.0ms" in detail
+
+    fine = parse_k6_summary(
+        '{"metrics": {"http_req_duration": {"p(95)": 20}, "http_reqs": {"rate": 900}}}'
+    )
+    ok2, detail2 = evaluate_k6(fine, PerformanceConfig(max_latency_p975_ms=100))
+    assert ok2 is True
+
+
+def test_k6_runner_applies_to_node_only() -> None:
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    runner = K6Runner()
+    assert runner.applies(ProjectManifest(stack=Stack.NODE, test_runner="node"))
+    assert not runner.applies(ProjectManifest(stack=Stack.PYTHON, test_runner="pytest"))
+
+
+def test_k6_runner_skipped_without_script(tmp_path) -> None:
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    result = K6Runner().run(
+        ProjectManifest(stack=Stack.NODE, test_runner="node"),
+        tmp_path,
+        TestType.PERFORMANCE,
+        timeout_seconds=30,
+    )
+
+    assert result.no_tests is True
+    assert "k6_script" in (result.note or "")
+
+
+def test_k6_runner_missing_binary(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.perf_k6 as module
+    from testing_agent.config import ProjectConfig
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+
+    config = ProjectConfig(
+        root=str(tmp_path), performance=PerformanceConfig(k6_script="load.js")
+    )
+    result = K6Runner().run(
+        ProjectManifest(stack=Stack.NODE, test_runner="node"),
+        tmp_path,
+        TestType.PERFORMANCE,
+        timeout_seconds=30,
+        config=config,
+    )
+
+    assert result.missing_runner is True
+    assert "k6 not found" in (result.note or "")
+
+
+def test_k6_runner_ok_run(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.perf_k6 as module
+    from testing_agent.config import ProjectConfig
+    from testing_agent.detect.models import ProjectManifest, Stack
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "k6.exe")
+    (tmp_path / "load.js").write_text("export default function() {}")
+    summary_payload = (
+        '{"metrics": {"http_req_duration": {"p(95)": 20}, "http_reqs": {"rate": 900}}}'
+    )
+
+    def fake_run(command, cwd, timeout, log):
+        # the summary-export path IS the log file passed to run_command
+        log.write_text(summary_payload)
+        return 0, 4000, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+
+    config = ProjectConfig(
+        root=str(tmp_path),
+        performance=PerformanceConfig(k6_script="load.js", max_latency_p975_ms=100),
+    )
+    result = K6Runner().run(
+        ProjectManifest(stack=Stack.NODE, test_runner="node"),
+        tmp_path,
+        TestType.PERFORMANCE,
+        timeout_seconds=30,
+        config=config,
+    )
+
+    assert result.success is True
+    assert result.failed == 0
+    assert "p95=20ms" in (result.note or "")
