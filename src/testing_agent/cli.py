@@ -29,6 +29,16 @@ class TestTypeChoice(str, Enum):
     unit = "unit"
     integration = "integration"
     regression = "regression"
+    security = "security"
+    performance = "performance"
+    system = "system"
+
+
+_NEW_TYPES = (
+    TestType.SECURITY,
+    TestType.PERFORMANCE,
+    TestType.SYSTEM,
+)
 
 
 def _resolve_root(path: Path) -> Path:
@@ -109,23 +119,47 @@ def run(
     config = load_config(root) or ProjectConfig(root=str(root))
 
     results: list[RunResult] = []
-    for manifest in detection.manifests:
-        runner = select_runner(manifest, chosen)
-        if runner is None:
-            results.append(
-                RunResult(
-                    runner="none",
-                    test_type=chosen,
-                    manifest_directory=manifest.directory,
-                    missing_runner=True,
-                    note=(
-                        f"no adapter yet for stack '{manifest.stack.value}' "
-                        f"(runner '{manifest.test_runner}') — planned in a later phase"
-                    ),
+    if chosen in _NEW_TYPES:
+        from testing_agent.runners import select_type_runners
+
+        for manifest in detection.manifests:
+            layer_runners = select_type_runners(manifest, root, chosen, config)
+            if not layer_runners:
+                results.append(
+                    RunResult(
+                        runner="none",
+                        test_type=chosen,
+                        manifest_directory=manifest.directory,
+                        missing_runner=True,
+                        note=(
+                            f"no {chosen.value} runner for stack '{manifest.stack.value}' — "
+                            "supported stacks: python, node"
+                        ),
+                    )
                 )
-            )
-            continue
-        results.append(runner.run(manifest, root, chosen, config.timeout_seconds))
+                continue
+            for layer_runner in layer_runners:
+                results.append(
+                    layer_runner.run(manifest, root, chosen, config.timeout_seconds, config)
+                )
+    else:
+        for manifest in detection.manifests:
+            runner = select_runner(manifest, chosen)
+            if runner is None:
+                results.append(
+                    RunResult(
+                        runner="none",
+                        test_type=chosen,
+                        manifest_directory=manifest.directory,
+                        missing_runner=True,
+                        note=(
+                            f"no adapter yet for stack '{manifest.stack.value}' "
+                            f"(runner '{manifest.test_runner}') — planned in a later phase"
+                        ),
+                    )
+                )
+                continue
+            results.append(runner.run(manifest, root, chosen, config.timeout_seconds, config))
 
     extra: dict | None = None
     if chosen == TestType.REGRESSION:

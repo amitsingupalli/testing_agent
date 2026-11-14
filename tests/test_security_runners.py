@@ -54,6 +54,16 @@ def test_parse_npm_audit_json_invalid_or_empty() -> None:
     assert parse_npm_audit_json('{"vulnerabilities": {}}').findings == []
 
 
+def test_parse_npm_audit_json_error_payload() -> None:
+    summary = parse_npm_audit_json(
+        '{"error": {"code": "ENOLOCK", "summary": "requires an existing lockfile."}}'
+    )
+    assert summary.had_error is True
+    assert len(summary.findings) == 1
+    assert summary.findings[0].name == "ENOLOCK"
+    assert "lockfile" in (summary.findings[0].message or "")
+
+
 def test_threshold_defaults_fail_on_critical() -> None:
     ok, detail = evaluate_thresholds({"critical": 1, "high": 0}, 1, SecurityConfig())
     assert ok is False
@@ -83,6 +93,7 @@ def test_npm_audit_runner_missing_npm(tmp_path, monkeypatch) -> None:
     import testing_agent.runners.security_npm as module
 
     monkeypatch.setattr(module, "npm_exec_command", lambda args: ["definitely-missing-binary"])
+    (tmp_path / "package-lock.json").write_text("{}")
 
     result = NpmAuditRunner().run(
         make_node_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
@@ -90,6 +101,15 @@ def test_npm_audit_runner_missing_npm(tmp_path, monkeypatch) -> None:
 
     assert result.missing_runner is True
     assert result.success is False
+
+
+def test_npm_audit_runner_skipped_without_lockfile(tmp_path) -> None:
+    result = NpmAuditRunner().run(
+        make_node_manifest(), tmp_path, TestType.SECURITY, timeout_seconds=30
+    )
+
+    assert result.no_tests is True
+    assert "package-lock.json" in (result.note or "")
 
 
 # ---------------------------------------------------------------------------

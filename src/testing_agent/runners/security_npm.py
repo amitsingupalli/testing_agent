@@ -27,6 +27,7 @@ class NpmAuditSummary(BaseModel):
 
     findings: list[FailureInfo] = Field(default_factory=list)
     severity_counts: dict[str, int] = Field(default_factory=dict)
+    had_error: bool = False
 
 
 def parse_npm_audit_json(text: str) -> NpmAuditSummary:
@@ -35,6 +36,16 @@ def parse_npm_audit_json(text: str) -> NpmAuditSummary:
     try:
         data = json.loads(text)
     except ValueError:
+        return summary
+
+    error = data.get("error")
+    if isinstance(error, dict):
+        code = str(error.get("code", "unknown"))
+        message = str(error.get("summary", "")) or str(error.get("detail", ""))
+        summary.had_error = True
+        summary.findings.append(
+            FailureInfo(name=code, message=f"npm audit failed: {code} — {message}"[:_MESSAGE_PREVIEW_CHARS])
+        )
         return summary
 
     vulnerabilities = data.get("vulnerabilities")
@@ -97,6 +108,15 @@ class NpmAuditRunner(Runner):
         config: ProjectConfig | None = None,
     ) -> RunResult:
         manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
+        if not (manifest_dir / "package-lock.json").exists():
+            return RunResult(
+                runner=self.id,
+                test_type=test_type,
+                manifest_directory=manifest.directory,
+                no_tests=True,
+                note="skipped: no package-lock.json (npm i --package-lock-only enables audit)",
+            )
+
         command = npm_exec_command(["npm", "audit", "--json"])
         log_file = log_path(manifest_dir, self.id, test_type)
         exit_code, duration_ms, missing = run_command(
@@ -114,6 +134,8 @@ class NpmAuditRunner(Runner):
         summary = parse_npm_audit_json(log_file.read_text(encoding="utf-8", errors="replace"))
         security = config.security if config else SecurityConfig()
         ok, detail = evaluate_thresholds(summary.severity_counts, len(summary.findings), security)
+        if summary.had_error:
+            ok = False
 
         return RunResult(
             runner=self.id,
