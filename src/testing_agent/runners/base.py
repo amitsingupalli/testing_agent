@@ -26,6 +26,7 @@ class TestType(str, Enum):
     SECURITY = "security"
     PERFORMANCE = "performance"
     SYSTEM = "system"
+    COMPATIBILITY = "compatibility"
 
 
 TestType.__test__ = False  # prevent pytest from trying to collect this class

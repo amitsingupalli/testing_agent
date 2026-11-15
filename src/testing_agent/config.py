@@ -61,6 +61,15 @@ class SecurityConfig(BaseModel):
     use_semgrep_auto: bool = False  # auto rules need network; opt-in
 
 
+class CompatibilityConfig(BaseModel):
+    """Settings for the compatibility layer (Playwright browser matrix)."""
+
+    browsers: list[str] = Field(default_factory=list)  # override matrix, e.g. ["chromium"]
+    base_url: str | None = None  # passed to playwright via PLAYWRIGHT_BASE_URL
+    timeout_seconds: int = Field(default=600, ge=1)  # browser runs are slow
+    install_if_missing: bool = False  # opt-in `npx playwright install`
+
+
 def default_profiles() -> dict[str, GatePolicy]:
     """Built-in gate profiles: dev, ci, release."""
     return {
@@ -96,6 +105,7 @@ class ProjectConfig(BaseModel):
     system: SystemConfig = Field(default_factory=SystemConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    compatibility: CompatibilityConfig = Field(default_factory=CompatibilityConfig)
     runner_overrides: dict[str, str] = Field(default_factory=dict)
 
 
