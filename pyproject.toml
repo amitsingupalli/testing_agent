@@ -1,12 +1,28 @@
 [project]
 name = "testing-agent"
 version = "0.1.0"
-description = "Self-testing layer for coding agents: detect the stack, run unit/integration/regression suites, gate agent changes, and report failures."
+description = "Self-testing layer for coding agents: detect the stack, run unit/integration/regression/security/performance/system suites, gate agent changes, and report failures."
 readme = "README.md"
 authors = [
     { name = "Amit Singupalli", email = "amitsingupalli26@gmail.com" }
 ]
-requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["testing", "ci", "agents", "automation", "quality", "gate", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
@@ -14,12 +30,19 @@ dependencies = [
     "httpx>=0.27",
 ]
 
+[project.urls]
+Homepage = "https://github.com/amitsingupalli/testing_agent"
+Repository = "https://github.com/amitsingupalli/testing_agent"
+Issues = "https://github.com/amitsingupalli/testing_agent/issues"
+Changelog = "https://github.com/amitsingupalli/testing_agent/blob/main/CHANGELOG.md"
+
 [project.scripts]
 testing-agent = "testing_agent:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.2",
+    "pyyaml>=6.0",
 ]
 
 [build-system]
