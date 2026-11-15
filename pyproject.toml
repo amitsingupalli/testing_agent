@@ -1,6 +1,6 @@
 [project]
 name = "testing-agent"
-version = "0.1.0"
+version = "0.4.0"
 description = "Self-testing layer for coding agents: detect the stack, run unit/integration/regression/security/performance/system suites, gate agent changes, and report failures."
 readme = "README.md"
 authors = [
