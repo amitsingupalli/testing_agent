@@ -32,12 +32,14 @@ class TestTypeChoice(str, Enum):
     security = "security"
     performance = "performance"
     system = "system"
+    compatibility = "compatibility"
 
 
 _NEW_TYPES = (
     TestType.SECURITY,
     TestType.PERFORMANCE,
     TestType.SYSTEM,
+    TestType.COMPATIBILITY,
 )
 
 

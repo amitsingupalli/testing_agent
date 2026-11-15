@@ -32,6 +32,7 @@ def test_registered_type_runners_map() -> None:
     assert registered["security"] == ["npm-audit", "pip-audit", "bandit", "semgrep"]
     assert registered["performance"] == ["autocannon", "k6", "lighthouse"]
     assert registered["system"] == ["system-boot"]
+    assert registered["compatibility"] == ["playwright"]
 
 
 def test_select_security_runners_node(tmp_path) -> None:
@@ -93,6 +94,22 @@ def test_select_system_runners(tmp_path) -> None:
 def test_select_type_runners_ignores_unit_types(tmp_path) -> None:
     runners = select_type_runners(
         node_manifest(), tmp_path, TestType.UNIT, ProjectConfig(root=str(tmp_path))
+    )
+
+    assert runners == []
+
+
+def test_select_compatibility_runners_node(tmp_path) -> None:
+    runners = select_type_runners(
+        node_manifest(), tmp_path, TestType.COMPATIBILITY, ProjectConfig(root=str(tmp_path))
+    )
+
+    assert [r.id for r in runners] == ["playwright"]
+
+
+def test_select_compatibility_runners_python_empty(tmp_path) -> None:
+    runners = select_type_runners(
+        python_manifest(), tmp_path, TestType.COMPATIBILITY, ProjectConfig(root=str(tmp_path))
     )
 
     assert runners == []

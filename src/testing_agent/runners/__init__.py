@@ -7,6 +7,7 @@ from pathlib import Path
 from testing_agent.config import ProjectConfig
 from testing_agent.detect.models import ProjectManifest
 from testing_agent.runners.base import Runner, TestType
+from testing_agent.runners.compat_playwright import PlaywrightRunner
 from testing_agent.runners.jest_unit import JestRunner
 from testing_agent.runners.node_unit import NodeTestRunner
 from testing_agent.runners.perf_autocannon import AutocannonRunner
@@ -36,6 +37,9 @@ _TYPE_RUNNERS: dict[TestType, list[Runner]] = {
     ],
     TestType.SYSTEM: [
         SystemRunner(),
+    ],
+    TestType.COMPATIBILITY: [
+        PlaywrightRunner(),
     ],
 }
 
