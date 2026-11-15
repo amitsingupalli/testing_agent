@@ -7,10 +7,9 @@
 - **Structured reports** — JSON + Markdown + rich terminal, written to `.testing-agent/`
 - **Windows-first** — subprocess handling that actually works on Windows (no shell hacks)
 
-> Status: **Phase 3** — everything in Phases 1–2 **plus security, performance, and
-> system layers** (npm audit, pip-audit, bandit, semgrep, autocannon, k6, Lighthouse,
-> boot-and-smoke), gate profiles, JUnit CI output, and a combined summary across
-> runners. Compatibility (Playwright browser matrix) and publishing land in Phase 4.
+> Status: **Phase 4** — everything in Phases 1–3 **plus browser compatibility**
+> (Playwright matrix), **diff-aware test selection**, a **GitHub Action**, and
+> **PyPI publishing** (`pip install testing-agent`).
 
 ## Quickstart
 
@@ -63,6 +62,7 @@ detect  ──►  select runner  ──►  execute  ──►  parse (JUnit/JS
 | security | `npm audit --json` (Node, needs `package-lock.json`), `pip-audit` + `bandit` (Python), `semgrep` (opt-in: needs `.semgrep.yml` or `use_semgrep_auto`) |
 | performance | `autocannon` (Node, `npx -y`), `k6` (needs `k6_script`), Lighthouse (opt-in) — latency p97.5/RPS thresholds |
 | system | boots the app (`boot_command`), polls a healthcheck, smoke-checks endpoints, tears down the process tree |
+| compatibility | Playwright browser matrix (needs `playwright.config.*`), JSON-report parsing, per-browser projects |
 
 ## Security, performance & system layers (Phase 3)
 
@@ -112,6 +112,56 @@ The system layer config in `.testing-agent.json`:
   }
 }
 ```
+
+## Diff-aware test selection (Phase 4)
+
+```bash
+# auto (default): run only tests mapped to changed files when git diff info exists
+uv run testing-agent run --path . --type regression
+
+# force a full run
+uv run testing-agent run --path . --type regression --select all
+
+# strict: report NO TESTS instead of falling back to a full run
+uv run testing-agent run --path . --type regression --select affected
+```
+
+Selection heuristics: mirrored/co-located layouts, `test_*` / `*.test.*` /
+`*.spec.*` naming, `__tests__/` directories, and monorepo scoping. Changes to
+`package.json`, `pyproject.toml`, lockfiles, or workflows force a full run.
+The report includes a **Test selection** section (mode, reason, chosen files).
+
+## Compatibility layer (Phase 4)
+
+Requires `@playwright/test` and a `playwright.config.*` in the project:
+
+```bash
+npm i -D @playwright/test && npx playwright install chromium
+uv run testing-agent run --path examples/webapp-demo --type compatibility
+```
+
+Parses the Playwright JSON report (pass/fail/flaky/skipped, per-browser names,
+failure messages). Browser matrix override: `compatibility.browsers` in
+`.testing-agent.json` (adds `--project=<browser>` per entry).
+
+## CI / GitHub Action (Phase 4)
+
+This repo's own CI runs the full matrix on ubuntu + windows:
+`.github/workflows/ci.yml` (self-tests + live layer demos).
+
+**Use testing-agent in your repo:**
+
+```yaml
+- uses: amitsingupalli/testing_agent@main
+  with:
+    path: "."
+    type: "unit"        # unit|integration|regression|security|performance|system|compatibility
+    profile: "ci"       # dev|ci|release
+    junit: "true"
+```
+
+The action runs `uvx testing-agent`, gates the run, uploads `.testing-agent/`
+reports, and fails the job when the gate fails.
 
 ## Test generation (Phase 2)
 
@@ -173,7 +223,8 @@ This repo dogfoods the integration: see `.opencode/`.
 - **Phase 1 (done)** — detection, unit/integration/regression runners, gate, reports
 - **Phase 2 (done)** — LLM test generation (opencode delegation + direct API + gap manifest), opencode plugin/subagent/skill, git-diff regression context
 - **Phase 3 (done)** — security (`npm audit`/`pip-audit`/bandit/semgrep), performance (autocannon/k6/Lighthouse), system boot-and-smoke, gate profiles, JUnit CI output, combined summary
-- **Phase 4** — compatibility (Playwright browser matrix), diff-aware test selection, GitHub Action, PyPI publish
+- **Phase 4 (done)** — compatibility (Playwright matrix), diff-aware test selection, GitHub Action, PyPI publish workflow
+- **Next** — first PyPI release tag, diff-aware generation targeting, HTML dashboard
 
 ## Development
 
