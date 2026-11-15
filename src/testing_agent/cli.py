@@ -79,6 +79,13 @@ def init(
                 f"[cyan]System layer hint: boot `{config.system.boot_command}` "
                 f"→ {config.system.target_url} (edit .testing-agent.json to adjust)[/cyan]"
             )
+        for manifest_dir_name in {m.directory for m in detection.manifests}:
+            base = (root / manifest_dir_name) if manifest_dir_name else root
+            if any((base / n).is_file() for n in ("playwright.config.ts", "playwright.config.js", "playwright.config.mjs", "playwright.config.cjs")):
+                console.print(
+                    "[cyan]Compatibility layer available: playwright.config detected "
+                    f"in '{manifest_dir_name or '.'}' — run with --type compatibility[/cyan]"
+                )
     else:
         console.print("[yellow]No known stacks detected here yet.[/yellow]")
 

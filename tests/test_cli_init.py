@@ -65,3 +65,22 @@ def test_init_no_prefill_for_python_app(tmp_path) -> None:
     assert result.exit_code == 0
     config = json.loads((tmp_path / ".testing-agent.json").read_text(encoding="utf-8"))
     assert config["system"]["boot_command"] is None
+
+
+def test_init_prints_compatibility_hint_for_playwright_project(tmp_path) -> None:
+    make_node_app(tmp_path)
+    (tmp_path / "playwright.config.ts").write_text("export default {}")
+
+    result = runner.invoke(app, ["init", "--path", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "--type compatibility" in result.output
+
+
+def test_init_no_compatibility_hint_without_playwright(tmp_path) -> None:
+    make_node_app(tmp_path)
+
+    result = runner.invoke(app, ["init", "--path", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "compatibility" not in result.output
