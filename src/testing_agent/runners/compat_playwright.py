@@ -163,7 +163,7 @@ class PlaywrightRunner(Runner):
                 note="npx not found on PATH",
             )
 
-        command = npm_exec_command(["npx", "playwright", "test", "--reporter=json"])
+        command = npm_exec_command(["npx", "-y", "playwright", "test", "--reporter=json"])
         for browser in compatibility.browsers:
             command.append(f"--project={browser}")
 
@@ -182,6 +182,23 @@ class PlaywrightRunner(Runner):
                 manifest_directory=manifest.directory,
                 missing_runner=True,
             )
+
+        # opt-in browser installation for missing engines
+        if exit_code not in (0, 1) and compatibility.install_if_missing and compatibility.browsers:
+            install_cmd = npm_exec_command(
+                ["npx", "-y", "playwright", "install", *compatibility.browsers]
+            )
+            run_command(install_cmd, manifest_dir, compatibility.timeout_seconds, log_file)
+            exit_code, duration_ms, missing = run_command(
+                command, manifest_dir, compatibility.timeout_seconds, log_file, env=env
+            )
+            if missing:
+                return RunResult(
+                    runner=self.id,
+                    test_type=test_type,
+                    manifest_directory=manifest.directory,
+                    missing_runner=True,
+                )
 
         summary = parse_playwright_json(log_file.read_text(encoding="utf-8", errors="replace"))
         if not summary.stats.parsed:

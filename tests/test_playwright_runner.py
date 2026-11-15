@@ -160,3 +160,80 @@ def test_run_command_env_passthrough(tmp_path) -> None:
     assert code == 0
     assert missing is False
     assert "hit" in log.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# real-shape JSON edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_parse_flaky_and_multi_browser() -> None:
+    text = """
+    {
+      "suites": [
+        {"title": "chromium", "suites": [{"title": "a.spec.ts", "specs": [
+          {"title": "flaky test", "ok": true,
+           "tests": [{"status": "flaky", "results": [{"status": "flaky"}]}]}
+        ]}]},
+        {"title": "firefox", "suites": [{"title": "a.spec.ts", "specs": [
+          {"title": "times out on firefox", "ok": false,
+           "tests": [{"status": "unexpected",
+                      "results": [{"status": "timedOut",
+                                   "error": {"message": "Timeout 15000ms exceeded"}}]}]}
+        ]}]}
+      ],
+      "errors": [],
+      "stats": {"expected": 4, "unexpected": 1, "flaky": 1, "skipped": 0, "duration": 99000.0}
+    }
+    """
+    summary = parse_playwright_json(text)
+
+    assert summary.browsers == ["chromium", "firefox"]
+    assert summary.stats.flaky == 1
+    assert summary.stats.unexpected == 1
+    assert [f.name for f in summary.failures] == ["times out on firefox"]
+    assert "Timeout" in (summary.failures[0].message or "")
+
+
+def test_parse_minimal_report_no_suites() -> None:
+    summary = parse_playwright_json('{"stats": {"expected": 3}, "suites": []}')
+
+    assert summary.stats.parsed is True
+    assert summary.stats.expected == 3
+    assert summary.browsers == []
+    assert summary.failures == []
+
+
+def test_parse_error_with_errors_block() -> None:
+    text = """
+    {
+      "errors": [{"message": "No tests found"}],
+      "stats": {}
+    }
+    """
+    summary = parse_playwright_json(text)
+
+    # stats block exists but is empty — counts stay zero, still parseable
+    assert summary.stats.parsed is True
+    assert summary.stats.expected == 0
+
+
+def test_playwright_runner_honest_failure_when_package_missing(tmp_path, monkeypatch) -> None:
+    import testing_agent.runners.compat_playwright as module
+
+    (tmp_path / "playwright.config.js").write_text("export default {}")
+    monkeypatch.setattr(module.shutil, "which", lambda name: "npx.cmd")
+
+    def fake_run(command, cwd, timeout, log, env=None):
+        log.write_text("playwright: not installed / executable does not exist")
+        return 127, 2000, False
+
+    monkeypatch.setattr(module, "run_command", fake_run)
+
+    result = PlaywrightRunner().run(
+        node_manifest(), tmp_path, TestType.COMPATIBILITY, timeout_seconds=30
+    )
+
+    assert result.success is False
+    assert result.failed == 1
+    assert "@playwright/test" in (result.note or "")
