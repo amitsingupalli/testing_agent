@@ -1,0 +1,80 @@
+name: testing-agent
+description: >
+  Run the testing-agent self-testing layer in your workflow:
+  detect the stack, run a test layer (unit/integration/regression/security/
+  performance/system/compatibility), gate it, and publish JUnit results.
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  path:
+    description: Project directory to test.
+    required: false
+    default: "."
+  type:
+    description: Test layer to run.
+    required: false
+    default: "unit"
+  profile:
+    description: Gate profile (dev, ci, release) — omit for the base gate.
+    required: false
+    default: ""
+  junit:
+    description: Write junit-report.xml alongside the standard reports.
+    required: false
+    default: "true"
+  version:
+    description: testing-agent version from PyPI ("latest" for newest).
+    required: false
+    default: "latest"
+  python-version:
+    description: Python version for uv to install.
+    required: false
+    default: "3.14"
+
+outputs:
+  verdict:
+    description: PASS or FAIL from the gate.
+    value: ${{ steps.run.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Resolve package spec
+      id: spec
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          echo "spec=testing-agent" >> "$GITHUB_OUTPUT"
+        else
+          echo "spec=testing-agent==${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Run testing-agent
+      id: run
+      shell: bash
+      run: |
+        ARGS=(run --path "${{ inputs.path }}" --type "${{ inputs.type }}")
+        if [ -n "${{ inputs.profile }}" ]; then
+          ARGS+=(--profile "${{ inputs.profile }}")
+        fi
+        if [ "${{ inputs.junit }}" = "true" ]; then
+          ARGS+=(--junit)
+        fi
+        uvx "${{ steps.spec.outputs.spec }}" "${ARGS[@]}" | tee "$GITHUB_STEP_SUMMARY" || VERDICT="$?"
+        echo "verdict=$(grep -o 'PASS\|FAIL' <<< "$(cat "$GITHUB_STEP_SUMMARY")" | head -1)" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Upload reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: testing-agent-reports
+        path: ${{ inputs.path }}/.testing-agent/
+        include-hidden-files: true
