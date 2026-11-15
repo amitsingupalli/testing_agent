@@ -54,10 +54,11 @@ class NodeTestRunner(Runner):
         test_type: TestType,
         timeout_seconds: int = 300,
         config: object | None = None,
+        test_files: list[str] | None = None,
     ) -> RunResult:
         manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
         suite_dir_name = self._suite_dir(manifest_dir, test_type)
-        if suite_dir_name is None:
+        if suite_dir_name is None and not test_files:
             return RunResult(
                 runner=self.id,
                 test_type=test_type,
@@ -66,16 +67,19 @@ class NodeTestRunner(Runner):
                 note=f"no test directory found in '{manifest.directory or '.'}'",
             )
 
-        suite_dir = manifest_dir / suite_dir_name
-        test_files = _collect_test_files(suite_dir)
-        if not test_files:
-            return RunResult(
-                runner=self.id,
-                test_type=test_type,
-                manifest_directory=manifest.directory,
-                no_tests=True,
-                note=f"no *.test.* files found under '{suite_dir_name}'",
-            )
+        if test_files:
+            run_targets = [Path(f) for f in test_files]
+        else:
+            suite_dir = manifest_dir / suite_dir_name
+            run_targets = _collect_test_files(suite_dir)
+            if not run_targets:
+                return RunResult(
+                    runner=self.id,
+                    test_type=test_type,
+                    manifest_directory=manifest.directory,
+                    no_tests=True,
+                    note=f"no *.test.* files found under '{suite_dir_name}'",
+                )
 
         junit_file = artifact_dir(manifest_dir) / f"node-{test_type.value}.xml"
         junit_file.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +90,7 @@ class NodeTestRunner(Runner):
             "junit",
             "--test-reporter-destination",
             str(junit_file),
-            *[str(path.relative_to(manifest_dir)) for path in test_files],
+            *[str(path) for path in run_targets],
         ]
         log_file = log_path(manifest_dir, self.id, test_type)
         exit_code, duration_ms, missing = run_command(

@@ -127,6 +127,11 @@ def run(
         None, "--profile", help="Gate profile: dev, ci, release (or a custom profile name)."
     ),
     junit: bool = typer.Option(False, "--junit", help="Also write junit-report.xml for CI."),
+    select_mode: str = typer.Option(
+        "auto",
+        "--select",
+        help="Diff-aware selection for regression runs: auto, all, affected.",
+    ),
 ) -> None:
     """Run the applicable test suites, gate the result, and write a report."""
     root = _resolve_root(path)
@@ -165,6 +170,7 @@ def run(
                     layer_runner.run(manifest, root, chosen, config.timeout_seconds, config)
                 )
     else:
+        regression_selection: dict | None = None
         for manifest in detection.manifests:
             runner = select_runner(manifest, chosen)
             if runner is None:
@@ -181,7 +187,44 @@ def run(
                     )
                 )
                 continue
-            results.append(runner.run(manifest, root, chosen, config.timeout_seconds, config))
+            test_files: list[str] | None = None
+            if chosen == TestType.REGRESSION and select_mode != "all":
+                from testing_agent.git_context import collect_git_context
+                from testing_agent.select import select_tests
+
+                context = collect_git_context(root)
+                if context.is_repo and context.changed_files:
+                    selection = select_tests(
+                        context.changed_files, manifest.directory, root=root
+                    )
+                    if selection.mode == "affected" or (
+                        select_mode == "affected" and selection.mode != "all"
+                    ):
+                        if selection.mode == "affected":
+                            test_files = selection.test_files
+                            regression_selection = {
+                                "mode": selection.mode,
+                                "reason": selection.reason,
+                                "changed_files": selection.changed_files,
+                                "test_files": selection.test_files,
+                            }
+                        elif selection.mode == "none":
+                            results.append(
+                                RunResult(
+                                    runner=runner.id,
+                                    test_type=chosen,
+                                    manifest_directory=manifest.directory,
+                                    no_tests=True,
+                                    note=(
+                                        f"diff-aware selection: {selection.reason}"
+                                        " (use --select all to force a full run)"
+                                    ),
+                                )
+                            )
+                            continue
+            results.append(
+                runner.run(manifest, root, chosen, config.timeout_seconds, config, test_files)
+            )
 
     extra: dict | None = None
     if chosen == TestType.REGRESSION:
@@ -197,9 +240,11 @@ def run(
                 "changed_files": context.changed_files,
                 "has_test_changes": context.has_test_changes,
                 "has_source_changes": context.has_source_changes,
-                "mode": "baseline (diff-aware selection lands in Phase 3)",
+                "mode": "diff-aware selection (Phase 4)",
             }
         }
+        if regression_selection:
+            extra["test_selection"] = regression_selection
 
     gate_result = evaluate(results, policy, chosen)
     gate_summary = GateSummary(

@@ -35,8 +35,14 @@ class VitestRunner(Runner):
         test_type: TestType,
         timeout_seconds: int = 300,
         config: object | None = None,
+        test_files: list[str] | None = None,
     ) -> RunResult:
         manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
+        note = (
+            "diff-aware selection not supported by vitest yet — ran full suite"
+            if test_files
+            else None
+        )
         target_args: list[str] = []
         if test_type == TestType.INTEGRATION:
             integration_dir = first_existing_directory(manifest_dir, _INTEGRATION_DIRS)
@@ -81,5 +87,6 @@ class VitestRunner(Runner):
             command=" ".join(command),
             success=(missing is False and exit_code == 0),
             missing_runner=missing,
+            note=note,
             failures=summary.failures if summary else [],
         )

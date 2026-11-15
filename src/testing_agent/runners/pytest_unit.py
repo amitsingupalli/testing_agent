@@ -41,10 +41,11 @@ class PytestRunner(Runner):
         test_type: TestType,
         timeout_seconds: int = 300,
         config: object | None = None,
+        test_files: list[str] | None = None,
     ) -> RunResult:
         manifest_dir = (Path(root) / manifest.directory) if manifest.directory else Path(root)
         suite_dir = self._suite_dir(manifest_dir, test_type)
-        if suite_dir is None:
+        if suite_dir is None and not test_files:
             return RunResult(
                 runner=self.id,
                 test_type=test_type,
@@ -59,7 +60,7 @@ class PytestRunner(Runner):
             sys.executable,
             "-m",
             "pytest",
-            suite_dir,
+            *(test_files if test_files else [suite_dir]),
             "--junit-xml",
             str(junit_file),
             "-q",

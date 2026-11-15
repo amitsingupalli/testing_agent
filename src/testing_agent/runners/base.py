@@ -96,11 +96,13 @@ class Runner(ABC):
         test_type: TestType,
         timeout_seconds: int = 300,
         config: ProjectConfig | None = None,
+        test_files: list[str] | None = None,
     ) -> RunResult:
         """Execute the suite and return a parsed result.
 
         `config` carries layer-specific settings (thresholds, endpoints, …);
-        adapters that don't need it may ignore it.
+        adapters that don't need it may ignore it. `test_files` (manifest-relative)
+        narrows the run to specific files when the runner supports it.
         """
 
 
@@ -134,12 +136,21 @@ def run_command(
     cwd: Path,
     timeout_seconds: int,
     log_file: Path,
+    env: dict[str, str] | None = None,
 ) -> tuple[int | None, int, bool]:
     """Execute a command and write stdout/stderr to a log file.
 
+    `env` extends (not replaces) the parent environment when provided.
     Returns (exit_code, duration_ms, missing_runner).
     """
+    import os
+
     started = time.perf_counter()
+    if env is not None:
+        child_env = dict(os.environ)
+        child_env.update(env)
+    else:
+        child_env = None
     try:
         completed = subprocess.run(
             command,
@@ -150,6 +161,7 @@ def run_command(
             errors="replace",
             timeout=timeout_seconds,
             check=False,
+            env=child_env,
         )
     except subprocess.TimeoutExpired:
         log_file.write_text(
