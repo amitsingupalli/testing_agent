@@ -91,6 +91,17 @@ def print_terminal(report: dict[str, Any], console: Console | None = None) -> No
             message = failure.get("message") or "no message"
             console.print(message)
 
+    selection = report.get("test_selection")
+    if selection:
+        console.print("\n[bold]Test selection[/bold]")
+        console.print(f"Mode: {selection.get('mode', '?')} — {selection.get('reason', '')}")
+        changed = selection.get("changed_files") or []
+        console.print(f"Changed files considered: {len(changed)}")
+        for path in changed[:10]:
+            console.print(f"  - {path}")
+        for test_file in (selection.get("test_files") or [])[:10]:
+            console.print(f"  selected: {test_file}")
+
     regression = report.get("regression_context")
     if regression:
         console.print("\n[bold]Regression context[/bold]")

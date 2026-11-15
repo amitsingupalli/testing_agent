@@ -86,6 +86,19 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- {mark} **{check.get('name', '?')}** — {check.get('detail', '')}")
     lines.append("")
 
+    selection = report.get("test_selection")
+    if selection:
+        lines.append("## Test selection")
+        lines.append("")
+        lines.append(f"- **Mode:** {selection.get('mode', '?')} — {selection.get('reason', '')}")
+        changed = selection.get("changed_files") or []
+        lines.append(f"- Changed files considered: {len(changed)}")
+        for path in changed[:10]:
+            lines.append(f"  - `{path}`")
+        for test_file in (selection.get("test_files") or [])[:20]:
+            lines.append(f"- Selected: `{test_file}`")
+        lines.append("")
+
     regression = report.get("regression_context")
     if regression:
         lines.append("## Regression context")

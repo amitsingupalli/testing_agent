@@ -114,3 +114,23 @@ def test_failures_surface_in_summary_results() -> None:
 
     assert "## Failures" in markdown
     assert "`npm-audit` — lodash" in markdown
+
+
+def test_markdown_renders_selection_section(capsys) -> None:
+    report = build_report("target", [], GateSummary(passed=True))
+    report["test_selection"] = {
+        "mode": "affected",
+        "reason": "1 changed file(s) map to 2 test file(s)",
+        "changed_files": ["src/app.js"],
+        "test_files": ["tests/unit/app.test.js", "tests/app.test.js"],
+    }
+
+    markdown = render_markdown(report)
+    print_terminal(report)
+
+    output = capsys.readouterr().out
+    assert "## Test selection" in markdown
+    assert "**Mode:** affected — 1 changed file(s) map to 2 test file(s)" in markdown
+    assert "Selected: `tests/unit/app.test.js`" in markdown
+    assert "Test selection" in output
+    assert "selected: tests/unit/app.test.js" in output
